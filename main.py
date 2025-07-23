@@ -1,60 +1,55 @@
-from fastapi import FastAPI, Header
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
-import yt_dlp
-import logging
-
-# Configuración de logs
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from fastapi.responses import JSONResponse
+from yt_dlp import YoutubeDL
+import uvicorn
 
 app = FastAPI()
 
-# Habilitar CORS para cualquier frontend/app
+# CORS para que tu app Android pueda acceder sin restricciones
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ⚠️ Restringe esto en producción
+    allow_origins=["*"],  # Cambia por el dominio exacto de tu app si prefieres más seguridad
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@app.get("/video")
-async def extract_video_info(url: str, cookie: Optional[str] = Header(None)):
-    logger.info(f"URL recibida: {url}")
-    logger.info(f"Cookies recibidas: {cookie is not None}")
+@app.get("/youtube")
+async def youtube_info(url: str = Query(...), request: Request = None):
+    cookies = request.headers.get("cookie") or request.headers.get("Cookie")
 
     ydl_opts = {
-        'quiet': True,
-        'skip_download': True,
-        'forcejson': True,
-        'nocheckcertificate': True,
-        'cookiefile': None,
-        'headers': {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 10) Chrome/115.0.0.0 Mobile Safari/537.36'
-        }
+        "quiet": True,
+        "nocheckcertificate": True,
+        "skip_download": True,
+        "cookiefile": None,
+        "format": "best",
     }
 
-    if cookie:
-        ydl_opts['http_headers']['Cookie'] = cookie
+    # Usamos cookies si las recibimos
+    if cookies:
+        ydl_opts["http_headers"] = {
+            "Cookie": cookies,
+            "User-Agent": "Mozilla/5.0"
+        }
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            best = next(
-                (f for f in info.get("formats", []) if f.get("ext") == "mp4" and f.get("vcodec") != "none" and f.get("acodec") != "none"),
-                None
-            )
-
             return {
-                "title": info.get("title"),
-                "uploader": info.get("uploader"),
-                "video_url": best.get("url") if best else "",
-                "thumbnail": info.get("thumbnail"),
-                "duration": info.get("duration"),
-                "platform": "YouTube"
+                "title": info.get("title", ""),
+                "downloadUrl": info.get("url", ""),
+                "thumbnail": info.get("thumbnail", ""),
+                "duration": str(info.get("duration", 0)) + "s"
             }
+
     except Exception as e:
-        logger.error(f"Error al procesar el video: {e}")
-        return JSONResponse(status_code=500, content={"error": "No se pudo analizar el video"})
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"No se pudo procesar el video: {str(e)}"}
+        )
+
+# Para correr local (no necesario en Render)
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
