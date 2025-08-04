@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
+<<<<<<< HEAD
 yt-dlp
 requests
 beautifulsoup4
@@ -9,3 +10,6 @@ lxml
 pydantic
 aiofiles
 slowapi
+=======
+yt-dlp
+>>>>>>> ad6af88411ae2baf0111a7aff4d1766a939b8d7c
