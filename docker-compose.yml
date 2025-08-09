@@ -1,22 +1,32 @@
+# docker-compose.yml
 version: '3.8'
 
 services:
-  youtube-extractor:
-    build: .
-    container_name: youtube-extractor-api
+  # ==================== APLICACIÓN PRINCIPAL ====================
+  snaptube-api:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: snaptube-youtube-api
     ports:
-      - "8000:8000"
+      - "${APP_PORT:-8000}:8000"
     environment:
       - APP_HOST=0.0.0.0
       - APP_PORT=8000
-      - DEBUG=False
-      - USE_PROXIES=false
-      - USE_BROWSER_COOKIES=false
-      - MAX_REQUESTS_PER_MINUTE=30
+      - DEBUG=${DEBUG:-False}
+      - ENV=${ENV:-production}
+      - USE_PROXIES=${USE_PROXIES:-False}
+      - USE_BROWSER_COOKIES=${USE_BROWSER_COOKIES:-False}
+      - MAX_REQUESTS_PER_MINUTE=${MAX_REQUESTS_PER_MINUTE:-30}
+      - USE_REDIS_CACHE=${USE_REDIS_CACHE:-True}
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./.env:/app/.env
+      - ./.env:/app/.env:ro
+    depends_on:
+      - redis
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -24,30 +34,96 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    networks:
+      - snaptube-network
 
-  # Opcional: Redis para cache y rate limiting más avanzado
+  # ==================== REDIS PARA CACHE ====================
   redis:
-    image: redis:7-alpine
-    container_name: youtube-extractor-redis
+    image: redis:7.2-alpine
+    container_name: snaptube-redis
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - snaptube-network
 
-  # Opcional: Nginx como proxy reverso
+  # ==================== NGINX PROXY REVERSO ====================
   nginx:
     image: nginx:alpine
-    container_name: youtube-extractor-nginx
+    container_name: snaptube-nginx
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
-      - ./ssl:/etc/nginx/ssl
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/logs:/var/log/nginx
     depends_on:
-      - youtube-extractor
+      - snaptube-api
     restart: unless-stopped
+    networks:
+      - snaptube-network
+
+  # ==================== MONITORING CON PROMETHEUS (OPCIONAL) ====================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: snaptube-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - snaptube-network
+    profiles:
+      - monitoring
+
+  # ==================== GRAFANA PARA DASHBOARDS (OPCIONAL) ====================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: snaptube-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    restart: unless-stopped
+    networks:
+      - snaptube-network
+    profiles:
+      - monitoring
 
 volumes:
   redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  snaptube-network:
+    driver: bridge
+
+# ==================== CONFIGURACIÓN PARA DESARROLLO ====================
+# Para usar en desarrollo, ejecuta: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up

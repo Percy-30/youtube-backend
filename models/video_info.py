@@ -1,5 +1,5 @@
 from pydantic import BaseModel, HttpUrl
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from datetime import datetime
 
 class VideoFormat(BaseModel):
@@ -7,7 +7,7 @@ class VideoFormat(BaseModel):
     ext: str
     quality: Optional[str] = None
     filesize: Optional[int] = None
-    url: str
+    url: Optional[str] = None
     acodec: Optional[str] = None
     vcodec: Optional[str] = None
     resolution: Optional[str] = None
@@ -31,11 +31,10 @@ class VideoInfo(BaseModel):
     duration_string: Optional[str] = None
     view_count: Optional[int] = None
     like_count: Optional[int] = None
-    dislike_count: Optional[int] = None
     average_rating: Optional[float] = None
     age_limit: Optional[int] = None
-    webpage_url: str
-    original_url: str
+    webpage_url: Optional[str] = None
+    original_url: Optional[str] = None
     thumbnails: List[VideoThumbnail] = []
     formats: List[VideoFormat] = []
     best_video_url: Optional[str] = None
@@ -53,7 +52,7 @@ class PlaylistInfo(BaseModel):
     description: Optional[str] = None
     uploader: Optional[str] = None
     uploader_id: Optional[str] = None
-    webpage_url: str
+    webpage_url: Optional[str] = None
     entries: List[VideoInfo] = []
     playlist_count: int = 0
     extracted_at: datetime
@@ -62,18 +61,17 @@ class ExtractRequest(BaseModel):
     url: str
     extract_audio: bool = False
     quality: Optional[str] = "best"
-    format_preference: Optional[str] = None
 
 class ExtractResponse(BaseModel):
     success: bool
     message: str
     data: Optional[VideoInfo] = None
     error: Optional[str] = None
-    processing_time: float
+    processing_time: Optional[float] = None
 
 class PlaylistExtractResponse(BaseModel):
     success: bool
     message: str
     data: Optional[PlaylistInfo] = None
     error: Optional[str] = None
-    processing_time: float
+    processing_time: Optional[float] = None
