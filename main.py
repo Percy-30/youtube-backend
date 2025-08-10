@@ -15,6 +15,7 @@ from routes.video_formats import router as formats_router
 from routes.download import router as download_router
 from routes.search import router as search_router
 from routes.trending import router as trending_router
+from routes.social_extract import router as social_extract_router
 
 from config import Config
 
@@ -97,6 +98,8 @@ app.include_router(formats_router, prefix="/v1")
 app.include_router(download_router, prefix="/v1")
 app.include_router(search_router, prefix="/v1")
 app.include_router(trending_router, prefix="/v1")
+app.include_router(social_extract_router, prefix="/api/v1")
+#app.include_router(social_extract_router, prefix="/api/v1")  # social platforms
 
 @app.get("/")
 async def root():

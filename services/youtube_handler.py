@@ -52,7 +52,7 @@ class YouTubeExtractor:
             'User-Agent': Config.USER_AGENT
         }
         
-        # Agregar cookies si existen
+        # Agregar cookies si existen y son válidas
         if Config.COOKIES_FULL_PATH.exists():
             if self.cookie_manager.validate_cookies_file(Config.COOKIES_FULL_PATH):
                 options['cookiefile'] = str(Config.COOKIES_FULL_PATH)
@@ -73,11 +73,10 @@ class YouTubeExtractor:
     
     def extract_video_info(self, url: str, extract_audio: bool = False, 
                           quality: str = "best") -> Optional[VideoInfo]:
-        """Extrae información de un video de YouTube"""
+        """Extrae información completa de un video de YouTube"""
         start_time = time.time()
         
         try:
-            # Configurar opciones específicas
             custom_options = {}
             
             if extract_audio:
@@ -93,18 +92,18 @@ class YouTubeExtractor:
                     custom_options['format'] = 'best[height<=720]/best'
                 elif quality == "low":
                     custom_options['format'] = 'worst/best'
+                else:
+                    custom_options['format'] = 'bestvideo+bestaudio/best'
             
             options = self.get_yt_dlp_options(custom_options)
             
             with yt_dlp.YoutubeDL(options) as ydl:
-                # Extraer información sin descargar
                 info = ydl.extract_info(url, download=False)
                 
                 if not info:
                     logger.error("No se pudo extraer información del video")
                     return None
                 
-                # Convertir a nuestro modelo
                 video_info = self._convert_to_video_info(info)
                 
                 processing_time = time.time() - start_time
@@ -115,7 +114,7 @@ class YouTubeExtractor:
         except Exception as e:
             logger.error(f"Error extrayendo video {url}: {e}")
             
-            # Intentar con proxy diferente si falla
+            # Intentar con proxy diferente si falla por proxy
             if self.proxy_rotator and "proxy" in str(e).lower():
                 logger.info("Intentando con proxy diferente...")
                 return self._retry_with_different_proxy(url, extract_audio, quality)
@@ -145,7 +144,7 @@ class YouTubeExtractor:
         """Extrae información de una playlist de YouTube"""
         try:
             options = self.get_yt_dlp_options({
-                'extract_flat': True,  # Solo metadata, no descargar
+                'extract_flat': True,
                 'playlistend': max_videos
             })
             
@@ -156,7 +155,6 @@ class YouTubeExtractor:
                     logger.error("No se pudo extraer información de la playlist")
                     return None
                 
-                # Extraer información detallada de cada video
                 videos = []
                 for entry in info['entries'][:max_videos]:
                     if entry:
@@ -185,9 +183,8 @@ class YouTubeExtractor:
             return None
     
     def _convert_to_video_info(self, yt_info: Dict[str, Any]) -> VideoInfo:
-        """Convierte la información de yt-dlp a nuestro modelo"""
+        """Convierte la información de yt-dlp a nuestro modelo VideoInfo"""
         
-        # Convertir formatos
         formats = []
         if 'formats' in yt_info:
             for fmt in yt_info['formats']:
@@ -205,7 +202,6 @@ class YouTubeExtractor:
                 )
                 formats.append(format_obj)
         
-        # Convertir thumbnails
         thumbnails = []
         if 'thumbnails' in yt_info:
             for thumb in yt_info['thumbnails']:
@@ -217,20 +213,14 @@ class YouTubeExtractor:
                 )
                 thumbnails.append(thumbnail_obj)
         
-        # Obtener mejores URLs de video y audio
-        best_video_url = None
+        best_video_url = yt_info.get('url', None)
+        
         best_audio_url = None
-        
-        if 'url' in yt_info:
-            best_video_url = yt_info['url']
-        
-        # Buscar mejor formato de audio
         if formats:
             audio_formats = [f for f in formats if f.vcodec == 'none' or f.vcodec is None]
             if audio_formats:
                 best_audio_url = audio_formats[0].url
         
-        # Formatear duración
         duration_string = None
         if yt_info.get('duration'):
             duration = int(yt_info['duration'])
@@ -272,19 +262,25 @@ class YouTubeExtractor:
         
         return video_info
     
+    def get_video_stream_url(self, video_id: str, quality: str = "best") -> Optional[str]:
+        """Obtiene URL directa de stream de video, para integración rápida"""
+        try:
+            url = f"https://www.youtube.com/watch?v={video_id}"
+            video_info = self.extract_video_info(url, quality=quality)
+            if video_info and video_info.best_video_url:
+                return video_info.best_video_url
+        except Exception as e:
+            logger.error(f"Error obteniendo stream URL: {e}")
+        return None
+    
     def search_videos(self, query: str, max_results: int = 10) -> List[VideoInfo]:
         """Busca videos en YouTube por query"""
         try:
             search_url = f"ytsearch{max_results}:{query}"
-            
-            options = self.get_yt_dlp_options({
-                'extract_flat': True,
-                'quiet': True
-            })
+            options = self.get_yt_dlp_options({'extract_flat': True, 'quiet': True})
             
             with yt_dlp.YoutubeDL(options) as ydl:
                 info = ydl.extract_info(search_url, download=False)
-                
                 videos = []
                 if 'entries' in info:
                     for entry in info['entries']:
@@ -293,43 +289,21 @@ class YouTubeExtractor:
                             video_info = self.extract_video_info(video_url)
                             if video_info:
                                 videos.append(video_info)
-                
                 logger.info(f"Búsqueda completada: {len(videos)} videos encontrados para '{query}'")
                 return videos
-                
         except Exception as e:
             logger.error(f"Error buscando videos: {e}")
             return []
     
-    def get_video_stream_url(self, video_id: str, quality: str = "best") -> Optional[str]:
-        """Obtiene URL directa de stream de video"""
-        try:
-            url = f"https://www.youtube.com/watch?v={video_id}"
-            video_info = self.extract_video_info(url, quality=quality)
-            
-            if video_info and video_info.best_video_url:
-                return video_info.best_video_url
-                
-        except Exception as e:
-            logger.error(f"Error obteniendo stream URL: {e}")
-            
-        return None
-    
     def get_channel_videos(self, channel_url: str, max_videos: int = 20) -> List[VideoInfo]:
-        """Obtiene videos de un canal"""
+        """Obtiene videos de un canal de YouTube"""
         try:
-            # Agregar /videos al final si no está presente
             if not channel_url.endswith('/videos'):
                 channel_url = channel_url.rstrip('/') + '/videos'
-            
-            options = self.get_yt_dlp_options({
-                'extract_flat': True,
-                'playlistend': max_videos
-            })
+            options = self.get_yt_dlp_options({'extract_flat': True, 'playlistend': max_videos})
             
             with yt_dlp.YoutubeDL(options) as ydl:
                 info = ydl.extract_info(channel_url, download=False)
-                
                 videos = []
                 if 'entries' in info:
                     for entry in info['entries'][:max_videos]:
@@ -338,10 +312,8 @@ class YouTubeExtractor:
                             video_info = self.extract_video_info(video_url)
                             if video_info:
                                 videos.append(video_info)
-                
                 logger.info(f"Canal procesado: {len(videos)} videos extraídos")
                 return videos
-                
         except Exception as e:
             logger.error(f"Error extrayendo videos del canal: {e}")
             return []

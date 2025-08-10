@@ -17,3 +17,4 @@ async def extract_playlist(url: str, max_videos: int = 20):
     if pl:
         return PlaylistExtractResponse(success=True, message="Playlist extraída", data=pl, processing_time=0.0)
     raise HTTPException(status_code=404, detail="No se pudo extraer la playlist")
+
